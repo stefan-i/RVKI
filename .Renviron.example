@@ -1,0 +1,14 @@
+# Vorlage. Als .Renviron in den Projektstamm kopieren, Werte eintragen,
+# R neu starten. Die echte .Renviron ist per .gitignore ausgeschlossen.
+
+# Pflicht: Embeddings und Standardmodell
+OPENAI_API_KEY=
+
+# Optional: weitere Modelle (erscheinen in der App nur, wenn gesetzt)
+OPENROUTER_API_KEY=
+GPUSTACK_API_KEY=
+# GPUSTACK_BASE_URL=https://gpustack.unibe.ch/v1-openai/chat/completions
+# GPUStack ist nur im Uni-Netz bzw. mit VPN erreichbar.
+
+# Optional: Zugangswort für die App. Leer = keine Abfrage (nur lokal sinnvoll).
+RVK_APP_PASSWORD=

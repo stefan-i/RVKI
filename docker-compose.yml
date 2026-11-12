@@ -1,0 +1,41 @@
+# =============================================================================
+# docker-compose.yml — RVK-Klassifikationsassistent auf der Synology
+#
+# In Container Manager als "Projekt" anlegen. Der Pfad links vom Doppelpunkt
+# muss auf den NAS-Ordner zeigen, in dem app.R, .here und RVK_data/ liegen.
+# =============================================================================
+
+services:
+  rvk:
+    build: .
+    container_name: rvk-app
+    restart: unless-stopped
+
+    ports:
+      # nur auf localhost der NAS veröffentlichen; nach aussen geht es
+      # ausschliesslich über Tailscale Funnel
+      - "127.0.0.1:3838:3838"
+
+    volumes:
+      # Code UND Daten kommen von hier. Beim Anpassen den Pfad ändern.
+      - /volume1/docker/rvk:/srv/rvk
+
+    environment:
+      # Schlüssel NICHT hier eintragen, sondern in der Datei .env daneben.
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - RVK_APP_PASSWORD=${RVK_APP_PASSWORD}
+      # GPUStack ist nur im Uni-Netz erreichbar; auf der NAS bewusst leer,
+      # damit die Modelle gar nicht erst in der Auswahl erscheinen.
+      # - GPUSTACK_API_KEY=${GPUSTACK_API_KEY}
+      - TZ=Europe/Zurich
+
+    # Obergrenze, damit ein Fehlverhalten nicht die ganze NAS lahmlegt.
+    # Die App braucht im Normalbetrieb rund 5 GB.
+    mem_limit: 9g
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

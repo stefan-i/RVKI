@@ -1,0 +1,39 @@
+# --- Zugangsdaten: niemals einchecken -----------------------------------------
+.Renviron
+.env
+*.env
+!.Renviron.example
+
+# --- Daten: gross, lokal oder intern -----------------------------------------
+# Die Datenbasis wird mit den Skripten aus den Quelldaten erzeugt.
+RVK_data/*.db
+RVK_data/*.db-journal
+RVK_data/*.rds
+RVK_data/*.xml
+RVK_data/*.xlsx
+RVK_data/*.xlsm
+RVK_data/*.xls
+RVK_data/*.csv
+RVK_data/*.docx
+RVK_data/*.zip
+RVK_data/cache_enrichment/
+RVK_data/embeddings_partial/
+RVK_data/holdings_partial_*/
+
+# Rückmeldungen der Nutzenden: nicht wiederherstellbar, aber nicht ins Repo
+feedback.db
+
+# --- R / RStudio --------------------------------------------------------------
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# --- Claude Code: persönliche Einstellungen ------------------------------------
+CLAUDE.local.md
+.claude/settings.local.json
+
+# --- System -------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
