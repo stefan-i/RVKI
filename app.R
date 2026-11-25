@@ -2,6 +2,10 @@
 # app.R  (v3)
 # RVK-Klassifikationsassistent
 #
+# v4: Stapel-Limit 50; CSV mit RVK-Pfad für Vorschlag und Alternative;
+#     ähnliche Titel als Tabelle (12 statt 8), Vorschlag gelb markiert,
+#     Alternative hellblau.
+#
 # v3: Feedback-Bestätigung wird pro Ergebnis zurückgesetzt (neues Ergebnis,
 #     "Leeren", neuer Stapel) und trägt eine Uhrzeit, damit auch wiederholtes
 #     Speichern sichtbar bestätigt wird. Eingabefeld wird nach dem Melden
@@ -73,6 +77,15 @@ app_css <- HTML("
   .small-muted   { color:#6c757d; font-size:.88rem; }
   .title-echo    { font-size:1.05rem; font-weight:600; }
   .alt-notation  { font-size:1.1rem; font-weight:600; color:#1F5673; }
+  .ev-table      { font-size:.9rem; margin-bottom:.25rem; }
+  .ev-table td, .ev-table th { padding:.2rem .5rem; vertical-align:top; }
+  .ev-table .ev-sim { font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .ev-table .ev-not { white-space:nowrap; }
+  .ev-table tr.ev-main > td { background-color:#fff1a8 !important; font-weight:700; }
+  .ev-table tr.ev-alt  > td { background-color:#e2eef9 !important; }
+  .ev-key        { display:inline-block; padding:0 .35rem; border-radius:3px; }
+  .ev-key-main   { background:#fff1a8; font-weight:700; }
+  .ev-key-alt    { background:#e2eef9; }
   .fb-row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
   .fb-row .form-group,
   .fb-row .shiny-input-container { margin-bottom:0 !important; }
@@ -101,12 +114,64 @@ copy_button <- function(txt) {
     "Notation kopieren")
 }
 
+# Pfad (übergeordnete Stellen) einer Notation: zuerst aus der Kandidatenliste,
+# sonst direkt aus der Datenbank.
 notation_pfad <- function(res, notation) {
-  if (is.null(res$candidates) || is.null(notation) || is.na(notation))
-    return(NA_character_)
-  i <- match(notation, res$candidates$notation)
-  if (is.na(i)) return(NA_character_)
-  res$candidates$pfad[i]
+  if (is.null(notation) || length(notation) == 0 || is.na(notation) ||
+      !nzchar(notation)) return(NA_character_)
+  if (!is.null(res$candidates)) {
+    i <- match(notation, res$candidates$notation)
+    if (!is.na(i)) return(res$candidates$pfad[i])
+  }
+  if (is.null(STATE) || is.null(STATE$con)) return(NA_character_)
+  p <- tryCatch(
+    DBI::dbGetQuery(STATE$con, "SELECT pfad FROM rvk WHERE notation = ?",
+                    params = list(notation))$pfad,
+    error = function(e) character(0))
+  if (length(p) && !is.na(p[1])) p[1] else NA_character_
+}
+
+# Vollständige Verortung für den Export: Pfad > Benennung
+full_location <- function(res, notation, benennung) {
+  p <- notation_pfad(res, notation)
+  b <- if (is.null(benennung) || is.na(benennung)) "" else benennung
+  if (is.na(p) || !nzchar(p)) b else if (nzchar(b)) paste(p, b, sep = " > ") else p
+}
+
+# Ähnliche Titel als Tabelle; Vorschlag gelb, Alternative hellblau.
+evidence_table_ui <- function(ev_tbl, main, alt) {
+  if (is.null(ev_tbl) || !nrow(ev_tbl))
+    return(div(class = "small-muted", "Keine ähnlichen Titel im Bestand gefunden."))
+  alt <- if (is.null(alt) || is.na(alt)) "" else alt
+  n_main <- sum(ev_tbl$notation == main)
+  n_alt  <- if (nzchar(alt)) sum(ev_tbl$notation == alt) else 0L
+
+  rows <- lapply(seq_len(nrow(ev_tbl)), function(i) {
+    n <- ev_tbl$notation[i]
+    cls <- if (identical(n, main)) "ev-main"
+           else if (nzchar(alt) && identical(n, alt)) "ev-alt" else NULL
+    ben <- if ("benennung" %in% names(ev_tbl) && !is.na(ev_tbl$benennung[i]))
+             ev_tbl$benennung[i] else NULL
+    tags$tr(class = cls,
+            tags$td(class = "ev-sim", sprintf("%.2f", ev_tbl$sim[i])),
+            tags$td(class = "ev-not", title = ben, n),
+            tags$td(ev_tbl$title[i]))
+  })
+
+  tagList(
+    div(class = "small-muted mb-1",
+        paste0(sprintf("%d von %d unter dem Vorschlag", n_main, nrow(ev_tbl)),
+               if (nzchar(alt)) sprintf(", %d unter der Alternative", n_alt) else "",
+               ".")),
+    tags$table(class = "table table-sm ev-table",
+      tags$thead(tags$tr(tags$th("Ähnlichkeit"), tags$th("Notation"),
+                         tags$th("Titel"))),
+      tags$tbody(rows)),
+    div(class = "small-muted",
+        span(class = "ev-key ev-key-main", "Vorschlag"), " ",
+        if (nzchar(alt)) span(class = "ev-key ev-key-alt", "Alternative"),
+        " · Ähnlichkeit: 1.00 = praktisch identischer Titel, ab etwa 0.55 inhaltlich verwandt.",
+        " Benennung der Notation beim Darüberfahren."))
 }
 
 
@@ -146,7 +211,7 @@ render_result <- function(res, idx = 1L, open = TRUE) {
 
   ev_block <- if (!is.null(ev)) {
     tagList(
-      div(class = "evidence-line", ev$evidence_text),
+      evidence_table_ui(ev$evidence_table, res$notation, res$alt_notation),
       if (length(res$konf_gruende))
         div(class = "small-muted mt-2",
             paste0("Konfidenz beruht auf: ",
@@ -250,7 +315,7 @@ server <- function(input, output, session) {
           sliderInput("boost", "Schwerpunkt-Gewichtung", min = 0, max = 0.4,
                       value = PIPELINE_DEFAULTS$branch_boost, step = 0.05),
           numericInput("batch_limit", "Max. Titel pro Stapel",
-                       value = 25, min = 1, max = 500, step = 5),
+                       value = 50, min = 1, max = 500, step = 5),
           div(class = "small-muted",
               "Änderungen wirken ab der nächsten Klassifikation.")))
       ),
@@ -357,7 +422,7 @@ server <- function(input, output, session) {
 
   output$batch_count <- renderText({
     n <- length(parse_titles(input$batch_input))
-    lim <- input$batch_limit %||% 25
+    lim <- input$batch_limit %||% 50
     if (n == 0) "" else sprintf("%d Titel erkannt%s", n,
       if (n > lim) sprintf(" — Limit ist %d, überzählige werden ignoriert.", lim) else "")
   })
@@ -380,7 +445,7 @@ server <- function(input, output, session) {
 
   observeEvent(input$go_batch, {
     v <- parse_titles(input$batch_input)
-    lim <- as.integer(input$batch_limit %||% 25)
+    lim <- as.integer(input$batch_limit %||% 50)
     if (!length(v)) {
       showNotification("Bitte zuerst Titel eingeben.", type = "warning"); return()
     }
@@ -457,10 +522,31 @@ server <- function(input, output, session) {
     datatable(df, rownames = FALSE, options = list(pageLength = 25, dom = "tip"))
   })
 
+  # Export: wie die Tabelle, plus vollständige RVK-Verortung von Vorschlag und
+  # Alternative (Pfad > Benennung), damit "Allgemeines" eindeutig wird.
+  csv_tbl <- reactive({
+    d <- batch$done
+    df <- batch_tbl()
+    if (!nrow(df)) return(df)
+    loc <- function(r, alt = FALSE) {
+      if (!isTRUE(r$ok)) return("")
+      v <- tryCatch(
+        if (alt) full_location(r, r$alt_notation, r$alt_benennung)
+        else     full_location(r, r$notation, r$benennung),
+        error = function(e) "")
+      if (is.null(v) || is.na(v)) "" else v
+    }
+    df |>
+      mutate(`RVK-Pfad` = vapply(d, loc, character(1)),
+             .after = Benennung) |>
+      mutate(`Alternative RVK-Pfad` = vapply(d, loc, character(1), alt = TRUE),
+             .after = `Alternative Benennung`)
+  })
+
   output$dl_csv <- downloadHandler(
     filename = function() sprintf("rvk_klassifikation_%s.csv",
                                   format(Sys.time(), "%Y%m%d_%H%M")),
-    content  = function(file) readr::write_excel_csv2(batch_tbl(), file))
+    content  = function(file) readr::write_excel_csv2(csv_tbl(), file))
 
 
   # --- Feedback -------------------------------------------------------------
