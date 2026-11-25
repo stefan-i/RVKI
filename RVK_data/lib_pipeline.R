@@ -27,7 +27,7 @@ PIPELINE_DEFAULTS <- list(
   model_key    = "luna",
   n_final      = 50L,
   branch_boost = 0.10,
-  n_evidence   = 8L
+  n_evidence   = 12L
 )
 
 # UI labels -> internal profile ids
